@@ -11,16 +11,17 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
@@ -58,26 +59,36 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 		extends Mapper<LongWritable, Text, Text, Text> {
 		
 		public static final Log LOG = LogFactory.getLog(RepartitionEquiJoinMapper.class);
+		Path leftTableFilePath;
+		Path rightTableFilePath;
 		
 		@Override
 		protected void setup(Context context) {
 			Configuration conf = context.getConfiguration();
+			leftTableFilePath = new Path(conf.get(LEFT_TABLE));
+			rightTableFilePath = new Path(conf.get(RIGHT_TABLE));
+			if (DEBUG) {
+				System.err.printf("left: %s,  right: %s\n", leftTableFilePath.toString(), rightTableFilePath.toString());
+			}
+	
 		}
 		
 		public void map(LongWritable key, Text values, Context context) 
 			throws IOException, InterruptedException {
 			
 			String inputfile = null;
+			Path inputFilePath = null;
+			
 			InputSplit split = context.getInputSplit();
 			
 			if (split instanceof FileSplit) {
 				FileSplit fsplit = (FileSplit) split;
+				inputFilePath = fsplit.getPath();
 				inputfile = fsplit.getPath().getName();
 			} else {
 				LOG.info("InputSplit is not FileSplit.");
 				return;
 			}
-			
 			
 			String line = values.toString();
 			if (DEBUG) {
@@ -88,18 +99,21 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 			String strVals = line.split(":")[1];
 			
 			if (DEBUG) {
-				System.err.printf("[Debug] map key = %s map val = %s\n", strKey, strVals);
+				System.err.printf("[Debug] map key = %s, map val = %s\n", strKey, strVals);
 			}
 			
 			Configuration conf = context.getConfiguration();
 			
 			String mapOutKey = null;
 			
-			if (inputfile.endsWith(L)) {
-				LOG.debug("Table L");
+			LOG.info("input file path: " + inputFilePath.toString());
+			
+			
+			if (inputfile.endsWith(leftTableFilePath.getName())) {
+				LOG.info("Processing Table L");
 				mapOutKey = "L:" + strKey;
-			} else if (inputfile.endsWith(R)) {
-				LOG.debug("Table R");
+			} else if (inputfile.endsWith(rightTableFilePath.getName())) {
+				LOG.info("Processing Table R");
 				mapOutKey = "R:" + strKey;
 			}
 			
@@ -186,6 +200,12 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 		FileInputFormat.addInputPath(job, new Path(conf.get(RIGHT_TABLE)));
 		FileOutputFormat.setOutputPath(job, new Path(conf.get(OUTPUT_TABLE)));
 		
+		/*
+		LocalFileSystem lfs = new LocalFileSystem();
+		if (lfs.exists(new Path(conf.get(OUTPUT_TABLE))))
+			lfs.delete(new Path(conf.get(OUTPUT_TABLE)), true);
+		lfs.close();
+		*/
 		
 		job.setMapperClass(RepartitionEquiJoinMapper.class);
 		job.setReducerClass(RepartitionEquiJoinReducer.class);
