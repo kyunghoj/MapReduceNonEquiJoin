@@ -5,23 +5,27 @@ package edu.buffalo.cse.jeju.mapred;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Map.Entry;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapred.FileSplit;
 import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.util.Tool;
 
 
 /**
  * @author kyunghoj
  *
  */
-public class RepartitionEquiJoin {
+public class RepartitionEquiJoin extends Configured implements Tool {
 
 	// left table "L"'s filename
 	private static String L = "L";
@@ -125,7 +129,42 @@ public class RepartitionEquiJoin {
 		}
 	}
 	
+	private static String LEFT_TABLE = "LEFT_TABLE";
+	private static String RIGHT_TABLE = "RIGHT_TABLE";
+	
+	private static boolean DEBUG = true;
+
+	public int run(String[] args) throws Exception {
+		
+		return 0;
+	}
+	
 	public static void main(String[] args) throws Exception {
+	
+		
+		if (args.length < 2) {
+			System.err.println("Usage: RepartitionEquiJoin Left_Table Right_Table [Configuration file]");
+			return;
+		}
+		
+		int i = 0;
+		Configuration conf = new Configuration();
+		
+		conf.set(LEFT_TABLE, args[i++]);
+		conf.set(RIGHT_TABLE, args[i++]);
+		if (args.length > 2) {
+			conf.addResource(args[i++]);
+		}
+		
+		if (DEBUG) {
+			for (Entry<String, String> entry: conf) {
+				System.err.printf("[Debug] %s=%s\n", entry.getKey(), entry.getValue());
+			}
+		}
+		
+		Job job = new Job(conf, "RepartitionJoin");
+		
+		job.setJarByClass(RepartitionEquiJoin.class);
 		
 	}
 }
