@@ -31,9 +31,9 @@ import org.apache.hadoop.util.ToolRunner;
  * 
  * This is essential a hash-join with an adaptation to Map-Reduce framework.
  */
-public class RepartitionEquiJoin extends Configured implements Tool {
+public class HashJoin extends Configured implements Tool {
 
-	private static final Log LOG = LogFactory.getLog(RepartitionEquiJoin.class);
+	private static final Log LOG = LogFactory.getLog(HashJoin.class);
 	
 	public static class Repartitioner 
 		extends Partitioner<Text, Text> {
@@ -135,18 +135,18 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 			
 			for (Text row : rows) {
 				if (isLTable) {
-					leftRowsBuffer.put(joinKey, row.toString());
+					String fullRowString = new String(joinKey+":"+row.toString());
+					leftRowsBuffer.put(joinKey, fullRowString);
 				} else {
 					if (leftRowsBuffer.containsKey(joinKey)) {
+						String rowString = leftRowsBuffer.get(joinKey);
+						
 						String result = joinKey + ",<" + 
 								leftRowsBuffer.get(joinKey) + ">, <" + 
 								row.toString() + ">";
 						
 						context.write(null, new Text(result));
-					} /*else {
-						String result = joinKey + ", <null>, " + "<" + row.toString() + ">"; 
-						context.write(null, new Text(result));
-					}*/
+					}
 				}
 			}
 			
@@ -186,7 +186,7 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 		
 		Job job = new Job(conf, "Repartition Join");
 		
-		job.setJarByClass(RepartitionEquiJoin.class);
+		job.setJarByClass(HashJoin.class);
 		
 		FileInputFormat.addInputPath(job, new Path(conf.get(LEFT_TABLE)));
 		FileInputFormat.addInputPath(job, new Path(conf.get(RIGHT_TABLE)));
@@ -209,7 +209,7 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 	}
 	
 	public static void main(String[] args) throws Exception {
-		int exitCode = ToolRunner.run(new RepartitionEquiJoin(), args);
+		int exitCode = ToolRunner.run(new HashJoin(), args);
 		System.exit(exitCode);
 	}
 	
