@@ -50,10 +50,10 @@ public class HashJoin extends Configured implements Tool {
 		}
 	}
 	
-	public static class RepartitionEquiJoinMapper 
+	public static class JoinMapper 
 		extends Mapper<LongWritable, Text, Text, Text> {
 		
-		public static final Log LOG = LogFactory.getLog(RepartitionEquiJoinMapper.class);
+		public static final Log LOG = LogFactory.getLog(JoinMapper.class);
 		Path leftTableFilePath;
 		Path rightTableFilePath;
 		
@@ -117,7 +117,7 @@ public class HashJoin extends Configured implements Tool {
 		}
 	}
 	
-	public static class RepartitionEquiJoinReducer 
+	public static class HashJoinReducer 
 		extends Reducer<Text, Text, Text, Text> {
 		
 		private HashMap<String, String> leftRowsBuffer = null;
@@ -199,8 +199,8 @@ public class HashJoin extends Configured implements Tool {
 		lfs.close();
 		*/
 		
-		job.setMapperClass(RepartitionEquiJoinMapper.class);
-		job.setReducerClass(RepartitionEquiJoinReducer.class);
+		job.setMapperClass(JoinMapper.class);
+		job.setReducerClass(HashJoinReducer.class);
 		
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
