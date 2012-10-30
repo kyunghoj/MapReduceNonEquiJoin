@@ -11,7 +11,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
-import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -29,15 +28,11 @@ import org.apache.hadoop.util.ToolRunner;
 
 /**
  * @author kyunghoj
- *
+ * 
+ * This is essential a hash-join with an adaptation to Map-Reduce framework.
  */
 public class RepartitionEquiJoin extends Configured implements Tool {
 
-	// left table "L"'s filename
-	private static String L = "L";
-	// right table "R"'s filename
-	private static String R = "R";
-    
 	private static final Log LOG = LogFactory.getLog(RepartitionEquiJoin.class);
 	
 	public static class Repartitioner 
@@ -102,8 +97,6 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 				System.err.printf("[Debug] map key = %s, map val = %s\n", strKey, strVals);
 			}
 			
-			Configuration conf = context.getConfiguration();
-			
 			String mapOutKey = null;
 			
 			LOG.info("input file path: " + inputFilePath.toString());
@@ -131,7 +124,6 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 		
 		@Override
 		protected void setup(Context context) {
-			Configuration conf = context.getConfiguration();
 			leftRowsBuffer = new HashMap<String, String>();
 		}
 		
@@ -151,10 +143,10 @@ public class RepartitionEquiJoin extends Configured implements Tool {
 								row.toString() + ">";
 						
 						context.write(null, new Text(result));
-					} else {
+					} /*else {
 						String result = joinKey + ", <null>, " + "<" + row.toString() + ">"; 
 						context.write(null, new Text(result));
-					}
+					}*/
 				}
 			}
 			
