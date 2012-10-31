@@ -5,6 +5,8 @@ package edu.buffalo.cse.jeju.mapred;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.Map.Entry;
 
 import org.apache.commons.logging.Log;
@@ -29,31 +31,41 @@ import org.apache.hadoop.util.ToolRunner;
 /**
  * @author kyunghoj
  * 
- * This is essential a hash-join with an adaptation to Map-Reduce framework.
+ * A hash-join with some adaptations to Map-Reduce framework.
  */
 public class HashJoin extends Configured implements Tool {
 
 	private static final Log LOG = LogFactory.getLog(HashJoin.class);
+	private static String LEFT_TABLE = "LEFT_TABLE";
+	private static String RIGHT_TABLE = "RIGHT_TABLE";
+	private static String OUTPUT_TABLE = "OUTPUT_TABLE";
 	
-	public static class Repartitioner 
+	private static boolean DEBUG = true;
+	
+	public static class JoinPartitioner 
 		extends Partitioner<Text, Text> {
+		
 		public int getPartition(Text key, Text value, int numPartitions) {
 			String joinKey = null;
+			
 			try {
 				String strKey = key.toString();
 				joinKey = strKey.split(":")[1];
-				LOG.debug("Composite key split: " + strKey.split(":")[0] + ", " + strKey.split(":")[1]);
+				if (DEBUG)
+					LOG.info("Composite key split: " + strKey.split(":")[0] + 
+						", " + strKey.split(":")[1]);
+				
 			} catch (NullPointerException npe) {
 				return 0;
 			}
-			return joinKey.hashCode() % numPartitions;
+			
+			return (joinKey.hashCode() % numPartitions);
 		}
 	}
 	
 	public static class JoinMapper 
 		extends Mapper<LongWritable, Text, Text, Text> {
 		
-		public static final Log LOG = LogFactory.getLog(JoinMapper.class);
 		Path leftTableFilePath;
 		Path rightTableFilePath;
 		
@@ -62,9 +74,9 @@ public class HashJoin extends Configured implements Tool {
 			Configuration conf = context.getConfiguration();
 			leftTableFilePath = new Path(conf.get(LEFT_TABLE));
 			rightTableFilePath = new Path(conf.get(RIGHT_TABLE));
-			if (DEBUG) {
-				System.err.printf("left: %s,  right: %s\n", leftTableFilePath.toString(), rightTableFilePath.toString());
-			}
+
+			LOG.debug("Left: " + leftTableFilePath.toString() +
+					" Right: " + rightTableFilePath.toString());
 	
 		}
 		
@@ -81,32 +93,25 @@ public class HashJoin extends Configured implements Tool {
 				inputFilePath = fsplit.getPath();
 				inputfile = fsplit.getPath().getName();
 			} else {
-				LOG.info("InputSplit is not FileSplit.");
+				LOG.debug("InputSplit is not FileSplit.");
 				return;
 			}
 			
 			String line = values.toString();
-			if (DEBUG) {
-				System.err.printf("[Debug] Input line = %s\n", line);
-			}
+			LOG.debug("Input Line: " + line);
 			
 			String strKey = line.split(":")[0];
 			String strVals = line.split(":")[1];
 			
-			if (DEBUG) {
-				System.err.printf("[Debug] map key = %s, map val = %s\n", strKey, strVals);
-			}
+			LOG.debug("Map key = " + strKey + " Map val = " + strVals);
 			
 			String mapOutKey = null;
 			
-			LOG.info("input file path: " + inputFilePath.toString());
-			
+			LOG.debug("input file path: " + inputFilePath.toString());
 			
 			if (inputfile.endsWith(leftTableFilePath.getName())) {
-				LOG.info("Processing Table L");
 				mapOutKey = "L:" + strKey;
 			} else if (inputfile.endsWith(rightTableFilePath.getName())) {
-				LOG.info("Processing Table R");
 				mapOutKey = "R:" + strKey;
 			}
 			
@@ -116,48 +121,69 @@ public class HashJoin extends Configured implements Tool {
 			context.write(new Text(mapOutKey), values);
 		}
 	}
-	
-	public static class HashJoinReducer 
+	public static class NLJoinReducer 
 		extends Reducer<Text, Text, Text, Text> {
-		
-		private HashMap<String, String> leftRowsBuffer = null;
 		
 		@Override
 		protected void setup(Context context) {
-			leftRowsBuffer = new HashMap<String, String>();
+			
 		}
 		
-		public void reduce(Text key, Iterable<Text> rows, Context context)
+		public void reduce(Text key, Iterable<Text> rows, Context context) 
 			throws IOException, InterruptedException {
-			String srcTbl  = key.toString().split(":")[0];
-			String joinKey = key.toString().split(":")[1];
-			boolean isLTable = srcTbl.matches("L");
-			
-			for (Text row : rows) {
-				if (isLTable) {
-					String fullRowString = new String(joinKey+":"+row.toString());
-					leftRowsBuffer.put(joinKey, fullRowString);
-				} else {
-					if (leftRowsBuffer.containsKey(joinKey)) {
-						String rowString = leftRowsBuffer.get(joinKey);
-						
-						String result = joinKey + ",<" + 
-								leftRowsBuffer.get(joinKey) + ">, <" + 
-								row.toString() + ">";
-						
-						context.write(null, new Text(result));
-					}
-				}
-			}
+			Iterator<Text> l_iter = rows.iterator();
 			
 		}
 	}
 	
-	private static String LEFT_TABLE = "LEFT_TABLE";
-	private static String RIGHT_TABLE = "RIGHT_TABLE";
-	private static String OUTPUT_TABLE = "OUTPUT_TABLE";
+	public static class HashJoinReducer 
+		extends Reducer<Text, Text, Text, Text> {
+		
+		// Hashtable for matching tuples from relations
+		private HashMap<String, LinkedList<String>> leftRowsBuffer = null;
+		
+		@Override
+		protected void setup(Context context) {
+			leftRowsBuffer = new HashMap<String, LinkedList<String>>();
+		}
+		
+		public void reduce(Text key, Iterable<Text> rows, Context context)
+				throws IOException, InterruptedException {
+
+			String srcTbl  = key.toString().split(":")[0];
+			String joinKey = key.toString().split(":")[1];
+			boolean isLTable = srcTbl.equals("L");
+
+			for (Text row : rows) {
+				if (isLTable) {
+					//String fullRowString = new String(joinKey + ":" + row.toString());
+					if (leftRowsBuffer.containsKey(joinKey)) {
+						leftRowsBuffer.get(joinKey).push(row.toString());
+					} else {
+						LinkedList<String> list = new LinkedList<String>();
+						list.push(row.toString());
+						leftRowsBuffer.put(joinKey, list);
+						LOG.debug("Tuple: " + row.toString() + " is added to the hash table.");
+					}
+				} else {
+					if (leftRowsBuffer.containsKey(joinKey)) {
+						LinkedList<String> tuplesList = leftRowsBuffer.get(joinKey);
+
+						for (String tuple : tuplesList) { 
+							LOG.debug("Tuple: " + tuple + " Join key: " + joinKey + " matches? " + tuple.split(":")[0].equals(joinKey));
+							if (tuple.split(":")[0].equals(joinKey)) {
+								String result = tuple + ", " + row.toString();
+								context.write(null, new Text(result));
+							}
+						}
+					}
+				}
+			}
+		}
+		
+	}
 	
-	private static boolean DEBUG = true;
+	
 
 	public int run(String[] args) throws Exception {
 		
@@ -184,7 +210,7 @@ public class HashJoin extends Configured implements Tool {
 			}
 		}
 		
-		Job job = new Job(conf, "Repartition Join");
+		Job job = new Job(conf, "HashJoin");
 		
 		job.setJarByClass(HashJoin.class);
 		
@@ -192,15 +218,9 @@ public class HashJoin extends Configured implements Tool {
 		FileInputFormat.addInputPath(job, new Path(conf.get(RIGHT_TABLE)));
 		FileOutputFormat.setOutputPath(job, new Path(conf.get(OUTPUT_TABLE)));
 		
-		/*
-		LocalFileSystem lfs = new LocalFileSystem();
-		if (lfs.exists(new Path(conf.get(OUTPUT_TABLE))))
-			lfs.delete(new Path(conf.get(OUTPUT_TABLE)), true);
-		lfs.close();
-		*/
-		
 		job.setMapperClass(JoinMapper.class);
 		job.setReducerClass(HashJoinReducer.class);
+		job.setPartitionerClass(JoinPartitioner.class);
 		
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
