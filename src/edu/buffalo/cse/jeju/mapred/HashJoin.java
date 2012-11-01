@@ -5,6 +5,7 @@ package edu.buffalo.cse.jeju.mapred;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Map.Entry;
 
 import org.apache.commons.logging.Log;
@@ -14,6 +15,7 @@ import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -35,18 +37,35 @@ public class HashJoin extends Configured implements Tool {
 
 	private static final Log LOG = LogFactory.getLog(HashJoin.class);
 	
-	public static class Repartitioner 
+	public static class HashJoinPartitioner 
 		extends Partitioner<Text, Text> {
 		public int getPartition(Text key, Text value, int numPartitions) {
 			String joinKey = null;
 			try {
-				String strKey = key.toString();
-				joinKey = strKey.split(":")[1];
-				LOG.debug("Composite key split: " + strKey.split(":")[0] + ", " + strKey.split(":")[1]);
+				String [] strKeyArray = key.toString().split(":");
+				joinKey = strKeyArray[1];
+				LOG.debug("Composite key split: " + strKeyArray[0] + ", " + strKeyArray[1]);
 			} catch (NullPointerException npe) {
 				return 0;
 			}
+			
+			// Because of the modulo operation (% numPartitions), 
+			// it is possible that non-equal keys go to the same reducer. 
 			return joinKey.hashCode() % numPartitions;
+		}
+	}
+	
+	// the default comparator for Text will lexicographically sort map output.
+	// thus, it's okay to use the default one, since my map output keys are
+	// int the form of {L|R}:join_key:attributes
+	
+	public static class HashJoinKeyComparator extends WritableComparator {
+		public HashJoinKeyComparator() {
+			super(Text.class);
+		}
+		
+		public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
+			return 0;
 		}
 	}
 	
@@ -114,6 +133,19 @@ public class HashJoin extends Configured implements Tool {
 			// assume we need all the columns from both tables.
 			// values is in a form of "key:values"
 			context.write(new Text(mapOutKey), values);
+		}
+	}
+	
+	public static class BlockNestedLoopJoinReducer 
+		extends Reducer<Text, Text, Text, Text> {
+		
+		private LinkedList<Text> L;
+		private LinkedList<Text> R;
+		
+		@Override
+		protected void setup(Context context) {
+			// 0. do some initialization
+			// 1. Initialize two block buffers, L and R.
 		}
 	}
 	
@@ -201,6 +233,7 @@ public class HashJoin extends Configured implements Tool {
 		
 		job.setMapperClass(JoinMapper.class);
 		job.setReducerClass(HashJoinReducer.class);
+		//job.setGroupingComparatorClass(cls);
 		
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
