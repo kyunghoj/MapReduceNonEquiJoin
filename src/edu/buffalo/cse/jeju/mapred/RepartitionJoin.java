@@ -61,11 +61,6 @@ public class RepartitionJoin extends Configured implements Tool {
 		}
 	}
 	
-	// the default comparator for Text will lexicographically sort map output.
-	// thus, it's okay to use the default one, since my map output keys are
-	// int the form of {L|R}:join_key:attributes
-	// leave this method just in case we need to implement a compator
-	
 	public static class RepartitionJoinGroupingComparator extends WritableComparator {
 		
 		private final DataInputBuffer buffer;
@@ -81,10 +76,10 @@ public class RepartitionJoin extends Configured implements Tool {
 		
 		public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
 			try {
-				buffer.reset(b1, s1, l1);                   // parse key1
+				buffer.reset(b1, s1, l1);
 				key1.readFields(buffer);
 
-				buffer.reset(b2, s2, l2);                   // parse key2
+				buffer.reset(b2, s2, l2);
 				key2.readFields(buffer);
 
 			} catch (IOException e) {
