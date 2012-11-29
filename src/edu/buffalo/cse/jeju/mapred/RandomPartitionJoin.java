@@ -34,7 +34,6 @@ public class RandomPartitionJoin extends Configured implements Tool {
 	
 	private static boolean DEBUG = true;
 	
-	
 	public static class RandomPartitioner 
 		extends Partitioner<Text, Text> {
 		
@@ -61,7 +60,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			} else {
 				// randomly generate a partition number from 0 to numPartitions - 1
 				int partitionNum = rand.nextInt(numPartitions);
-				LOG.info("[Partitioner] random number: " + partitionNum);
+				LOG.info("[Partitioner] random number: " + partitionNum + " numPartitions: " + numPartitions);
 				return partitionNum;
 			}
 		}
@@ -173,7 +172,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 						// new "if" condition for theta join
 						String l_key = l_record.split(",")[0];
 						String r_key = record.split(",")[0];
-						if (l_key.compareTo(r_key) <= 0) {
+						if (l_key.compareTo(r_key) < 0) {
 							context.write(null, new Text(l_record + "," + record));
 						}
 					}
@@ -200,6 +199,8 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		}
 		
 		public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
+			return 0;
+			/*
 			try {
 				buffer.reset(b1, s1, l1);
 				key1.readFields(buffer);
@@ -214,25 +215,29 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			String str1 = key1.toString().split(":")[0];
 			String str2 = key2.toString().split(":")[0];
 			LOG.info("[GroupingComparator] Compare " + str1 + " to " + str2);
-			return str1.compareTo(str2);
+			return str1.compareTo(str2);*/
 		}
 	}
 
 	public int run(String[] args) throws Exception {
-		if (args.length < 2) {
-			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> [Configuration file]\n",
+		if (args.length < 3) {
+			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> <Num_of_Reducers> [Configuration file]\n",
 					getClass().getSimpleName());
 			return -1;
 		}
 		
 		int i = 0;
+		int numOfReducers = 1;
+		
 		Configuration conf = new Configuration();
 		
 		conf.set(LEFT_TABLE, args[i++]);
 		conf.set(RIGHT_TABLE, args[i++]);
 		conf.set(OUTPUT_TABLE, args[i++]);
 		
-		if (args.length > 3) {
+		numOfReducers = new Integer(args[i++]);
+		
+		if (args.length > 4) {
 			conf.addResource(args[i++]);
 		}
 		
@@ -242,7 +247,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			}
 		}
 		
-		Job job = new Job(conf, "HashJoin");
+		Job job = new Job(conf, "Random-partitioning-Join");
 		
 		job.setJarByClass(RepartitionJoin.class);
 		
@@ -259,7 +264,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
 		
-		job.setNumReduceTasks(4);
+		job.setNumReduceTasks(numOfReducers);
 		
 		return job.waitForCompletion(true) ? 0 : 1;
 	}
