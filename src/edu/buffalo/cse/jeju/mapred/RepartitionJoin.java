@@ -176,7 +176,8 @@ public class RepartitionJoin extends Configured implements Tool {
 			LinkedList<String> leftRecordBuf = new LinkedList<String>();
 			
 			for (Text taggedRecord : records) {
-				LOG.debug("[Reduce] key = " + key + " record = " + taggedRecord);
+				LOG.info("[Reduce] key = " + key + " record = " + taggedRecord);
+
 				String tag = taggedRecord.toString().split(":")[0];
 				String record = taggedRecord.toString().split(":")[1];
 				if (tag.equals("L")) {
@@ -231,6 +232,8 @@ public class RepartitionJoin extends Configured implements Tool {
 		
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
+		
+		job.setNumReduceTasks(1);
 		
 		return job.waitForCompletion(true) ? 0 : 1;
 	}
