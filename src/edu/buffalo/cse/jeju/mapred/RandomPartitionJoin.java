@@ -2,8 +2,8 @@ package edu.buffalo.cse.jeju.mapred;
 
 import java.io.IOException;
 import java.util.LinkedList;
-import java.util.Random;
 import java.util.Map.Entry;
+import java.util.Random;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -21,6 +21,7 @@ import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+import org.apache.hadoop.mapreduce.lib.input.SequenceFileAsTextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
@@ -67,7 +68,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 	}
 	
 	public static class RandomPartitionJoinMapper 
-		extends Mapper<LongWritable, Text, Text, Text> {
+		extends Mapper<Text, Text, Text, Text> {
 		
 		Path leftTableFilePath;
 		Path rightTableFilePath;
@@ -86,6 +87,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 				throws IOException, InterruptedException {
 				
 				String inputfile = null;
+			  String inputFileDir = null;
 				Path inputFilePath = null;
 				
 				InputSplit split = context.getInputSplit();
@@ -94,6 +96,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 					FileSplit fsplit = (FileSplit) split;
 					inputFilePath = fsplit.getPath();
 					inputfile = fsplit.getPath().getName();
+				  inputFileDir = inputFilePath.getParent().getName();
 				} else {
 					LOG.debug("InputSplit is not FileSplit.");
 					return;
@@ -101,17 +104,19 @@ public class RandomPartitionJoin extends Configured implements Tool {
 					
 				// Extract the join attributes from value
 				// let's assume key and value are separated by a comma
-				String line = value.toString();
-				String strKey = line.split(",")[0];
+				String strKey = key.toString();
+				String strVal = value.toString();
 					
-				LOG.debug("[Map] Input Line: " + line + " Map key = " + strKey);
-				LOG.debug("[Map] input file path: " + inputFilePath.toString());
+				LOG.info("[Map] Input Key: " + strKey + " Value = " + strVal);
+				LOG.info("[Map] input file path: " + inputFilePath.toString());
 				
 				Text taggedKey;
-				Text taggedRecord;
-				
-				if (inputfile.endsWith(leftTableFilePath.getName())) {
-					taggedRecord = new Text("L:" + line);
+				Text taggedVal;
+			
+        if (inputfile.endsWith(leftTableFilePath.getName()) || 
+			    inputFileDir.endsWith(leftTableFilePath.getName())) {
+					
+          taggedVal = new Text("L:" + strVal);
 					int numPartitions = context.getConfiguration().getInt("mapred.reduce.tasks", 1);
 					
 					for (int i = 0; i < numPartitions; i++) {
@@ -120,20 +125,19 @@ public class RandomPartitionJoin extends Configured implements Tool {
 						if (DEBUG) {
 							LOG.info("intermediate key: " + iKey);
 						}
-						context.write(taggedKey, taggedRecord);
+						context.write(taggedKey, taggedVal);
 					}
 					
-				} else if (inputfile.endsWith(rightTableFilePath.getName())) {
+				} else if (inputfile.endsWith(rightTableFilePath.getName()) ||
+					inputFileDir.endsWith(rightTableFilePath.getName())) {
 					taggedKey = new Text(strKey + ":R");
-					taggedRecord = new Text("R:" + line);
-					context.write(taggedKey, taggedRecord);
+					taggedVal = new Text("R:" + strVal);
+					context.write(taggedKey, taggedVal);
 				} else {
 					taggedKey = null;
-					taggedRecord = null;
+					taggedVal = null;
 					LOG.error("[Map] Input filename does not match.");
 				}
-				
-				
 			}
 		
 			@Override
@@ -263,6 +267,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
+		job.setInputFormatClass(SequenceFileAsTextInputFormat.class);
 		
 		job.setNumReduceTasks(numOfReducers);
 		

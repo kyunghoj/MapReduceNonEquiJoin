@@ -10,7 +10,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.DataInputBuffer;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.mapreduce.InputSplit;
@@ -20,6 +19,7 @@ import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+import org.apache.hadoop.mapreduce.lib.input.SequenceFileAsTextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
@@ -91,7 +91,7 @@ public class RepartitionJoin extends Configured implements Tool {
 	}
 	
 	public static class RepartitionJoinMapper 
-		extends Mapper<LongWritable, Text, Text, Text> {
+		extends Mapper<Text, Text, Text, Text> {
 		
 		Path leftTableFilePath;
 		Path rightTableFilePath;
@@ -107,10 +107,11 @@ public class RepartitionJoin extends Configured implements Tool {
 	
 		}
 		
-		public void map(LongWritable key, Text value, Context context) 
+		public void map(Text key, Text value, Context context) 
 			throws IOException, InterruptedException {
 			
 			String inputfile = null;
+			String inputFileDir = null;
 			Path inputFilePath = null;
 			
 			InputSplit split = context.getInputSplit();
@@ -119,35 +120,36 @@ public class RepartitionJoin extends Configured implements Tool {
 				FileSplit fsplit = (FileSplit) split;
 				inputFilePath = fsplit.getPath();
 				inputfile = fsplit.getPath().getName();
+				inputFileDir = inputFilePath.getParent().getName();
 			} else {
 				LOG.debug("InputSplit is not FileSplit.");
 				return;
 			}
 				
-			// Extract the join attributes from value
-			// let's assume key and value are separated by a comma
-			String line = value.toString();
-			String strKey = line.split(",")[0];
+			String strKey = key.toString();
+			String strVal = value.toString();
 				
-			LOG.debug("[Map] Input Line: " + line + " Map key = " + strKey);
-			LOG.debug("[Map] input file path: " + inputFilePath.toString());
+			LOG.info("[Map] key: " + strKey + " value: " + strVal);
+			LOG.info("[Map] input file path: " + inputFilePath.toString());
 			
 			Text taggedKey;
-			Text taggedRecord;
+			Text taggedVal;
 			
-			if (inputfile.endsWith(leftTableFilePath.getName())) {
+			if (inputfile.endsWith(leftTableFilePath.getName()) || 
+			    inputFileDir.endsWith(leftTableFilePath.getName())) {
 				taggedKey = new Text(strKey + ":L");
-				taggedRecord = new Text("L:" + line);
-			} else if (inputfile.endsWith(rightTableFilePath.getName())) {
+				taggedVal = new Text("L:" + strVal);
+			} else if (inputfile.endsWith(rightTableFilePath.getName()) ||
+					inputFileDir.endsWith(rightTableFilePath.getName())) {
 				taggedKey = new Text(strKey + ":R");
-				taggedRecord = new Text("R:" + line);
+				taggedVal = new Text("R:" + strVal);
 			} else {
 				taggedKey = null;
-				taggedRecord = null;
+				taggedVal = null;
 				LOG.error("[Map] Input filename does not match.");
 			}
 			
-			context.write(taggedKey, taggedRecord);
+			context.write(taggedKey, taggedVal);
 		}
 	
 		@Override
@@ -179,7 +181,7 @@ public class RepartitionJoin extends Configured implements Tool {
 				LOG.info("[Reduce] key = " + key + " record = " + taggedRecord);
 
 				String tag = taggedRecord.toString().split(":")[0];
-				String record = taggedRecord.toString().split(":")[1];
+				String record = key + "," + taggedRecord.toString().split(":")[1];
 				if (tag.equals("L")) {
 					leftRecordBuf.add(record);
 				} else {
@@ -194,19 +196,23 @@ public class RepartitionJoin extends Configured implements Tool {
 	public int run(String[] args) throws Exception {
 		
 		if (args.length < 2) {
-			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> [Configuration file]\n",
+			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> <NumOfReducers> [Configuration file]\n",
 					getClass().getSimpleName());
 			return -1;
 		}
 		
 		int i = 0;
+    int numOfReducers = 1;
+
 		Configuration conf = new Configuration();
 		
 		conf.set(LEFT_TABLE, args[i++]);
 		conf.set(RIGHT_TABLE, args[i++]);
 		conf.set(OUTPUT_TABLE, args[i++]);
-		
-		if (args.length > 3) {
+	 
+    numOfReducers = new Integer(args[i++]);
+
+		if (args.length > 4) {
 			conf.addResource(args[i++]);
 		}
 		
@@ -216,9 +222,10 @@ public class RepartitionJoin extends Configured implements Tool {
 			}
 		}
 		
-		Job job = new Job(conf, "HashJoin");
+		Job job = new Job(conf, "RepartitionJoin");
 		
 		job.setJarByClass(RepartitionJoin.class);
+		job.setInputFormatClass(SequenceFileAsTextInputFormat.class);
 		
 		FileInputFormat.addInputPath(job, new Path(conf.get(LEFT_TABLE)));
 		FileInputFormat.addInputPath(job, new Path(conf.get(RIGHT_TABLE)));
