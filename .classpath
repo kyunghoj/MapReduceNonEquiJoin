@@ -6,6 +6,6 @@
 	<classpathentry kind="lib" path="/home/kyunghoj/work/hadoop-1.0.4/hadoop-tools-1.0.4.jar"/>
 	<classpathentry kind="lib" path="/home/kyunghoj/work/hadoop-1.0.4/lib/commons-logging-1.1.1.jar"/>
 	<classpathentry kind="lib" path="/home/kyunghoj/work/hadoop-1.0.4/lib/commons-logging-api-1.0.4.jar"/>
-	<classpathentry kind="lib" path="/home/kyunghoj/git/hybrex-bigtable/lib/commons-lang-2.5.jar"/>
+	<classpathentry kind="lib" path="/home/kyunghoj/work/hadoop-1.0.4/lib/commons-lang-2.4.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

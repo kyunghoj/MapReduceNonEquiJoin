@@ -1,6 +1,7 @@
 package edu.buffalo.cse.jeju.mapred;
 
 import java.io.IOException;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.Map.Entry;
 import java.util.Random;
@@ -11,9 +12,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.DataInputBuffer;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparator;
+import org.apache.hadoop.mapred.JobClient;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -32,20 +33,21 @@ public class RandomPartitionJoin extends Configured implements Tool {
 	private static String LEFT_TABLE = "LEFT_TABLE";
 	private static String RIGHT_TABLE = "RIGHT_TABLE";
 	private static String OUTPUT_TABLE = "OUTPUT_TABLE";
+	private static String LEFT_PARTITION = "LEFT_PARTITION";
+	private static String RIGHT_PARTITION = "RIGHT_PARTITION";
 	
 	private static boolean DEBUG = true;
 	
 	public static class RandomPartitioner 
 		extends Partitioner<Text, Text> {
 		
-		private Random rand = new Random();
-		
 		public int getPartition(Text key, Text value, int numPartitions) {
 			String tblTag = null;
+			String regionStrKey = null;
 			
 			try {
 				String [] strKeyArray = key.toString().split(":");
-				//String joinKey = strKeyArray[0];
+				regionStrKey = strKeyArray[0];
 				tblTag = strKeyArray[1];
 				
 				LOG.debug("[Partitioner] Composite key split: " + strKeyArray[0] + ", " + strKeyArray[1]);
@@ -54,6 +56,9 @@ public class RandomPartitionJoin extends Configured implements Tool {
 				return -1;
 			}
 			
+			return new Integer(regionStrKey);
+			
+			/*
 			if (tblTag.equals("L")) {
 				String [] strKeyArray = key.toString().split(":");
 				String reduceId = strKeyArray[2];
@@ -64,130 +69,163 @@ public class RandomPartitionJoin extends Configured implements Tool {
 				LOG.info("[Partitioner] random number: " + partitionNum + " numPartitions: " + numPartitions);
 				return partitionNum;
 			}
+			*/
 		}
 	}
 	
 	public static class RandomPartitionJoinMapper 
-		extends Mapper<Text, Text, Text, Text> {
-		
+	extends Mapper<Text, Text, Text, Text> {
+
 		Path leftTableFilePath;
 		Path rightTableFilePath;
 		
+		int numReducers;
+		int numRows, numCols;
+		
+		Text taggedKey, taggedVal;
+		
+		Random rand;
+		
 		@Override
 		protected void setup(Context context) {
+			rand = new Random();
 			Configuration conf = context.getConfiguration();
 			leftTableFilePath = new Path(conf.get(LEFT_TABLE));
 			rightTableFilePath = new Path(conf.get(RIGHT_TABLE));
 
+			numReducers = conf.getInt("mapred.reduce.tasks", 1);
+			numRows = conf.getInt(LEFT_PARTITION, 1);
+			numCols = conf.getInt(RIGHT_PARTITION, 1);
+			
+			taggedKey = new Text();
+			taggedVal = new Text();
+			
 			LOG.debug("[Setup] Left: " + leftTableFilePath.toString() +
 					" Right: " + rightTableFilePath.toString());
 		}
-		
-		public void map(LongWritable key, Text value, Context context) 
+
+		public void map(Text key, Text value, Context context) 
 				throws IOException, InterruptedException {
-				
-				String inputfile = null;
-			  String inputFileDir = null;
-				Path inputFilePath = null;
-				
-				InputSplit split = context.getInputSplit();
-				
-				if (split instanceof FileSplit) {
-					FileSplit fsplit = (FileSplit) split;
-					inputFilePath = fsplit.getPath();
-					inputfile = fsplit.getPath().getName();
-				  inputFileDir = inputFilePath.getParent().getName();
-				} else {
-					LOG.debug("InputSplit is not FileSplit.");
-					return;
-				}
-					
-				// Extract the join attributes from value
-				// let's assume key and value are separated by a comma
-				String strKey = key.toString();
-				String strVal = value.toString();
-					
-				LOG.info("[Map] Input Key: " + strKey + " Value = " + strVal);
-				LOG.info("[Map] input file path: " + inputFilePath.toString());
-				
-				Text taggedKey;
-				Text taggedVal;
+
+			String inputfile = null;
+			String inputFileDir = null;
+			Path inputFilePath = null;
+
+			InputSplit split = context.getInputSplit();
+
+			if (split instanceof FileSplit) {
+				FileSplit fsplit = (FileSplit) split;
+				inputFilePath = fsplit.getPath();
+				inputfile = fsplit.getPath().getName();
+				inputFileDir = inputFilePath.getParent().getName();
+			} else {
+				LOG.debug("InputSplit is not FileSplit.");
+				return;
+			}
+
+			// Convert key and value into strings
+			String strKey = key.toString();
+			String strVal = value.toString();
+
+			LOG.info("[Map] Input Key: " + strKey + " Value = " + strVal);
+			LOG.info("[Map] input file path: " + inputFilePath.toString());
+
+			if (numReducers > numRows * numCols) {
+				LOG.error("The number of possible partitions are more than the number of reducers.");
+				return;
+			}
 			
-        if (inputfile.endsWith(leftTableFilePath.getName()) || 
-			    inputFileDir.endsWith(leftTableFilePath.getName())) {
-					
-          taggedVal = new Text("L:" + strVal);
-					int numPartitions = context.getConfiguration().getInt("mapred.reduce.tasks", 1);
-					
-					for (int i = 0; i < numPartitions; i++) {
-						String iKey = strKey + ":L:" + i;
-						taggedKey = new Text(iKey);
-						if (DEBUG) {
-							LOG.info("intermediate key: " + iKey);
-						}
-						context.write(taggedKey, taggedVal);
+			// if tuple is from Left Table 
+			if (inputfile.endsWith(leftTableFilePath.getName()) || 
+				inputFileDir.endsWith(leftTableFilePath.getName())) {	
+				
+				int matrixRow = rand.nextInt(numRows);
+				
+				LOG.info("[map] numRows: " + numRows + " matrixRow: " + matrixRow);
+
+				taggedVal.set("L:" + strKey + "," + strVal);
+				
+				for (int col = 0; col < numCols; col++) {
+					int region = matrixRow * numRows + col;
+					String regionKey = region + ":L";
+					taggedKey.set(regionKey);
+					if (DEBUG) {
+						LOG.info("intermediate key: " + regionKey);
 					}
-					
-				} else if (inputfile.endsWith(rightTableFilePath.getName()) ||
-					inputFileDir.endsWith(rightTableFilePath.getName())) {
-					taggedKey = new Text(strKey + ":R");
-					taggedVal = new Text("R:" + strVal);
 					context.write(taggedKey, taggedVal);
-				} else {
-					taggedKey = null;
-					taggedVal = null;
-					LOG.error("[Map] Input filename does not match.");
 				}
+
+			} else if (inputfile.endsWith(rightTableFilePath.getName()) ||
+					inputFileDir.endsWith(rightTableFilePath.getName())) {
+
+				int matrixCol = rand.nextInt(numCols);
+				
+				LOG.info("[map] numCols: " + numCols + " matrixCol: " + matrixCol);
+				
+				taggedVal.set("R:" + strKey + "," + strVal);
+							
+				for (int row = 0; row < numRows; row++) {
+					int region = row * numRows + matrixCol;
+					String regionKey = region + ":R";
+					taggedKey.set(regionKey);
+					if (DEBUG) {
+						LOG.info("intermediate key: " + regionKey);
+					}
+					context.write(taggedKey, taggedVal);
+				}
+			} else {
+				taggedKey = null;
+				taggedVal = null;
+				LOG.error("[Map] Input filename does not match.");
 			}
-		
-			@Override
-			protected void cleanup(Context context) {
-				leftTableFilePath = null;
-				rightTableFilePath = null;
-			}
+		}
+
+		@Override
+		protected void cleanup(Context context) {
+			leftTableFilePath = null;
+			rightTableFilePath = null;
+			
+			taggedKey = taggedVal = null;
+		}
 	}
 	
 	public static class RandomPartitionJoinReducer 
 		extends Reducer<Text, Text, Text, Text> {
 		
+		LinkedList<String> leftRecordBuf;
+		
 		@Override
 		protected void setup(Context context) {
-			
+			leftRecordBuf = new LinkedList<String>();
 		}
 		
 		@Override
 		protected void cleanup(Context context) {
-			
+			leftRecordBuf = null;
 		}
 		
 		public void reduce(Text key, Iterable<Text> records, Context context)
 			throws IOException, InterruptedException {
 			
-			LinkedList<String> leftRecordBuf = new LinkedList<String>();
-			
 			for (Text taggedRecord : records) {
-				LOG.debug("[Reduce] key = " + key + " record = " + taggedRecord);
+				LOG.info("[Reduce] key = " + key + " record = " + taggedRecord);
 				String tag = taggedRecord.toString().split(":")[0];
-				String record = taggedRecord.toString().split(":")[1];
+				String tuple = taggedRecord.toString().split(":")[1];
 				if (tag.equals("L")) {
-					leftRecordBuf.add(record);
+					leftRecordBuf.add(tuple);
 				} else {
-					for (String l_record : leftRecordBuf) { 
+					for (String l_tuple : leftRecordBuf) { 
 						// new "if" condition for theta join
-						String l_key = l_record.split(",")[0];
-						String r_key = record.split(",")[0];
+						String l_key = l_tuple.split(",")[0];
+						String r_key = tuple.split(",")[0];
 						if (l_key.compareTo(r_key) < 0) {
-							context.write(null, new Text(l_record + "," + record));
+							context.write(null, new Text(l_tuple + "," + tuple));
 						}
 					}
 				}
 			}
 		}
 	}
-	
-	// this should be revised as we want to process tuples with 
-	// different join attribute values in a reduce() call. 
-	// can it be done???
 	
 	public static class RandomPartitionJoinGroupingComparator extends WritableComparator {
 		
@@ -197,14 +235,15 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		
 		public RandomPartitionJoinGroupingComparator() {
 			super(Text.class);
+			
 			buffer = new DataInputBuffer();
 			key1 = new Text();
 			key2 = new Text();
+			
 		}
 		
 		public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
-			return 0;
-			/*
+			
 			try {
 				buffer.reset(b1, s1, l1);
 				key1.readFields(buffer);
@@ -219,19 +258,21 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			String str1 = key1.toString().split(":")[0];
 			String str2 = key2.toString().split(":")[0];
 			LOG.info("[GroupingComparator] Compare " + str1 + " to " + str2);
-			return str1.compareTo(str2);*/
+			return str1.compareTo(str2);
 		}
 	}
 
 	public int run(String[] args) throws Exception {
 		if (args.length < 3) {
-			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> <Num_of_Reducers> [Configuration file]\n",
+			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> <Num_of_Reducers> <L_Partitions> <R_Partitions>\n",
 					getClass().getSimpleName());
 			return -1;
 		}
 		
 		int i = 0;
 		int numOfReducers = 1;
+		int numOfLParts = 1;
+		int numOfRParts = 1;
 		
 		Configuration conf = new Configuration();
 		
@@ -241,7 +282,15 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		
 		numOfReducers = new Integer(args[i++]);
 		
-		if (args.length > 4) {
+		// divides left table into numOfLParts parts
+		// numOfRParts * numOfLParts = numOfReducers
+		numOfLParts = new Integer(args[i++]);
+		conf.setInt(LEFT_PARTITION, numOfLParts);
+		
+		numOfRParts = new Integer(args[i++]);
+		conf.setInt(RIGHT_PARTITION, numOfRParts);
+		
+		if (args.length > 6) {
 			conf.addResource(args[i++]);
 		}
 		
@@ -271,14 +320,22 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		
 		job.setNumReduceTasks(numOfReducers);
 		
-		return job.waitForCompletion(true) ? 0 : 1;
+		Date startTime = new Date();
+	    System.out.println("Job started: " + startTime);
+	    boolean ret = job.waitForCompletion(true);
+	    Date endTime = new Date();
+	    System.out.println("Job ended: " + endTime);
+	    System.out.println("The job took " + 
+	                       (endTime.getTime() - startTime.getTime()) /1000 + 
+	                       " seconds.");
+		return ret ? 0 : 1;
 	}
 	
 	/**
 	 * @param args
 	 */
 	public static void main(String[] args) throws Exception {
-		// TODO Auto-generated method stub
+		
 		int exitCode = ToolRunner.run(new RandomPartitionJoin(), args);
 		System.exit(exitCode);
 	}

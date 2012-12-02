@@ -21,11 +21,12 @@ package edu.buffalo.cse.jeju.mapred;
 import java.io.IOException;
 import java.util.Date;
 import java.util.Random;
+import java.util.Map.Entry;
 
+import org.apache.commons.lang.RandomStringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
@@ -46,7 +47,6 @@ import org.apache.hadoop.mapred.lib.IdentityReducer;
 import org.apache.hadoop.util.GenericOptionsParser;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
-import org.apache.commons.lang.RandomStringUtils;
 
 /**
  * This program uses map/reduce to just run a distributed job where there is
@@ -201,13 +201,14 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
     @Override
     public void configure(JobConf job) {
       numBytesToWrite = job.getLong("test.randomwrite.bytes_per_map",
-                                    1*1024*1024*1024);
-      minKeySize = job.getInt("test.randomwrite.min_key", 10);
+                                   1*1024*1024*1024);
+    		  						
+      minKeySize = job.getInt("test.randomwrite.min_key", 1);
       keySizeRange = 
-        job.getInt("test.randomwrite.max_key", 30) - minKeySize;
-      minValueSize = job.getInt("test.randomwrite.min_value", 1);
+        job.getInt("test.randomwrite.max_key", 1) - minKeySize;
+      minValueSize = job.getInt("test.randomwrite.min_value", 5);
       valueSizeRange = 
-        job.getInt("test.randomwrite.max_value", 100) - minValueSize;
+        job.getInt("test.randomwrite.max_value", 5) - minValueSize;
     }
     
   }
@@ -221,7 +222,7 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
    */
   public int run(String[] args) throws Exception {    
     if (args.length == 0) {
-      System.out.println("Usage: writer <out-dir>");
+      System.out.println("Usage: writer <out-dir> [-conf jobconf.xml]");
       ToolRunner.printGenericCommandUsage(System.out);
       return -1;
     }
@@ -233,6 +234,20 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
     job.setJobName("random-text-kv-writer");
     FileOutputFormat.setOutputPath(job, outDir);
     
+    for (int i = 1; i < args.length; i++) {
+    	try {
+    		if ("-conf".equals(args[i])) {
+    			job.addResource(args[++i]);
+    			
+    		}
+    		
+    	} catch (Exception e) {
+    		System.out.println("Usage: writer <out-dir> [-conf jobconf.xml]");
+    		ToolRunner.printGenericCommandUsage(System.out);
+    		return -1;
+    	}
+    }
+    
     job.setOutputKeyClass(Text.class);
     job.setOutputValueClass(Text.class);
     
@@ -240,6 +255,10 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
     job.setMapperClass(Map.class);        
     job.setReducerClass(IdentityReducer.class);
     job.setOutputFormat(SequenceFileOutputFormat.class);
+    
+    for (Entry<String, String> entry: job) {
+		System.err.printf("[Debug] %s=%s\n", entry.getKey(), entry.getValue());
+	}
     
     JobClient client = new JobClient(job);
     ClusterStatus cluster = client.getClusterStatus();

@@ -194,54 +194,54 @@ public class RepartitionJoin extends Configured implements Tool {
 	}
 
 	public int run(String[] args) throws Exception {
-		
+
 		if (args.length < 2) {
 			System.err.printf("Usage: %s <Left_Table> <Right_Table> <Output_Table> <NumOfReducers> [Configuration file]\n",
 					getClass().getSimpleName());
 			return -1;
 		}
-		
+
 		int i = 0;
-    int numOfReducers = 1;
+		int numOfReducers = 1;
 
 		Configuration conf = new Configuration();
-		
+
 		conf.set(LEFT_TABLE, args[i++]);
 		conf.set(RIGHT_TABLE, args[i++]);
 		conf.set(OUTPUT_TABLE, args[i++]);
-	 
-    numOfReducers = new Integer(args[i++]);
+
+		numOfReducers = new Integer(args[i++]);
 
 		if (args.length > 4) {
 			conf.addResource(args[i++]);
 		}
-		
+
 		if (DEBUG) {
 			for (Entry<String, String> entry: conf) {
 				System.err.printf("[Debug] %s=%s\n", entry.getKey(), entry.getValue());
 			}
 		}
-		
+
 		Job job = new Job(conf, "RepartitionJoin");
-		
+
 		job.setJarByClass(RepartitionJoin.class);
 		job.setInputFormatClass(SequenceFileAsTextInputFormat.class);
-		
+
 		FileInputFormat.addInputPath(job, new Path(conf.get(LEFT_TABLE)));
 		FileInputFormat.addInputPath(job, new Path(conf.get(RIGHT_TABLE)));
 		FileOutputFormat.setOutputPath(job, new Path(conf.get(OUTPUT_TABLE)));
-		
+
 		job.setMapperClass(RepartitionJoinMapper.class);
-		
+
 		job.setReducerClass(RepartitionJoinReducer.class);
 		job.setPartitionerClass(RepartitionJoinPartitioner.class);
 		job.setGroupingComparatorClass(RepartitionJoinGroupingComparator.class);
-		
+
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
-		
-		job.setNumReduceTasks(1);
-		
+
+		job.setNumReduceTasks(numOfReducers);
+
 		return job.waitForCompletion(true) ? 0 : 1;
 	}
 	
