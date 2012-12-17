@@ -10,8 +10,10 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -30,12 +32,49 @@ import org.apache.hadoop.util.ToolRunner;
  */
 public class HashJoin extends Configured implements Tool {
 
-	private static final Log LOG = LogFactory.getLog(HashJoin.class);
+	private static Log LOG = LogFactory.getLog(HashJoin.class);
+	
 	private static String LEFT_TABLE = "LEFT_TABLE";
 	private static String RIGHT_TABLE = "RIGHT_TABLE";
 	private static String OUTPUT_TABLE = "OUTPUT_TABLE";
 
 	private static boolean DEBUG = true;
+
+	public static class HashJoinGroupingComparator extends WritableComparator {
+		
+		private final DataInputBuffer buffer;
+		private final Text key1;
+		private final Text key2;
+		
+		public HashJoinGroupingComparator() {
+			super(Text.class);
+			buffer = new DataInputBuffer();
+			key1 = new Text();
+			key2 = new Text();
+		}
+		
+		public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
+			try {
+				buffer.reset(b1, s1, l1);
+				key1.readFields(buffer);
+
+				buffer.reset(b2, s2, l2);
+				key2.readFields(buffer);
+
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
+			
+			String str1 = key1.toString().split(":")[0];
+			String str2 = key2.toString().split(":")[0];
+			int hash1, hash2;
+			hash1 = str1.hashCode();
+			hash2 = str2.hashCode();
+
+			LOG.debug("[GroupingComparator] Compare " + str1 + " to " + str2);
+			return hash1 - hash2;
+		}
+	}
 
 	public static class HashJoinMapper 
 	extends Mapper<LongWritable, Text, Text, Text> {
@@ -70,27 +109,30 @@ public class HashJoin extends Configured implements Tool {
 				return;
 			}
 
-			// Extract the join attributes from value
-			// let's assume key and value are separated by a comma
-			String line = value.toString();
-			String strKey = line.split(",")[0];
+			String strKey = key.toString();
+			String strVal = value.toString();
 
 			LOG.debug("[Map] Input Line: " + line + " Map key = " + strKey);
 			LOG.debug("[Map] input file path: " + inputFilePath.toString());
 
-			Text joinKey = new Text(strKey);
-			Text taggedRecord;
-
-			if (inputfile.endsWith(leftTableFilePath.getName())) {
-				taggedRecord = new Text("L:" + line);
-			} else if (inputfile.endsWith(rightTableFilePath.getName())) {
-				taggedRecord = new Text("R:" + line);
+			Text taggedKey;
+			Text taggedVal;
+			
+			if (inputfile.endsWith(leftTableFilePath.getName()) || 
+			    inputFileDir.endsWith(leftTableFilePath.getName())) {
+				taggedKey = new Text(strKey + ":L");
+				taggedVal = new Text("L:" + strVal);
+			} else if (inputfile.endsWith(rightTableFilePath.getName()) ||
+					inputFileDir.endsWith(rightTableFilePath.getName())) {
+				taggedKey = new Text(strKey + ":R");
+				taggedVal = new Text("R:" + strVal);
 			} else {
-				taggedRecord = null;
+				taggedKey = null;
+				taggedVal = null;
 				LOG.error("[Map] Input filename does not match.");
 			}
-
-			context.write(joinKey, taggedRecord);
+			
+			context.write(taggedKey, taggedVal);
 		}
 
 		@Override
@@ -135,7 +177,6 @@ public class HashJoin extends Configured implements Tool {
 					context.write(null, new Text(l_rec + "," + r_rec));
 				}
 			}
-
 		}
 	}
 
@@ -174,6 +215,8 @@ public class HashJoin extends Configured implements Tool {
 
 		job.setMapperClass(HashJoinMapper.class);
 		job.setReducerClass(HashJoinReducer.class);
+		
+		job.setGroupingComparatorClass(HashJoinGroupingComparator.class);
 
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);

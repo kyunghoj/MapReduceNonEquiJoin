@@ -10,11 +10,11 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.DataInputBuffer;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparator;
-import org.apache.hadoop.mapred.JobClient;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -36,7 +36,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 	private static String LEFT_PARTITION = "LEFT_PARTITION";
 	private static String RIGHT_PARTITION = "RIGHT_PARTITION";
 	
-	private static boolean DEBUG = true;
+	private static boolean DEBUG = false;
 	
 	public static class RandomPartitioner 
 		extends Partitioner<Text, Text> {
@@ -127,9 +127,10 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			String strKey = key.toString();
 			String strVal = value.toString();
 
-			LOG.info("[Map] Input Key: " + strKey + " Value = " + strVal);
-			LOG.info("[Map] input file path: " + inputFilePath.toString());
+			LOG.debug("[Map] Input Key: " + strKey + " Value = " + strVal);
+			LOG.debug("[Map] input file path: " + inputFilePath.toString());
 
+			// this must be checked when taking user inputs
 			if (numReducers > numRows * numCols) {
 				LOG.error("The number of possible partitions are more than the number of reducers.");
 				return;
@@ -141,7 +142,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 				
 				int matrixRow = rand.nextInt(numRows);
 				
-				LOG.info("[map] numRows: " + numRows + " matrixRow: " + matrixRow);
+				LOG.debug("[map] numRows: " + numRows + " matrixRow: " + matrixRow);
 
 				taggedVal.set("L:" + strKey + "," + strVal);
 				
@@ -160,7 +161,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 
 				int matrixCol = rand.nextInt(numCols);
 				
-				LOG.info("[map] numCols: " + numCols + " matrixCol: " + matrixCol);
+				LOG.debug("[map] numCols: " + numCols + " matrixCol: " + matrixCol);
 				
 				taggedVal.set("R:" + strKey + "," + strVal);
 							
@@ -208,7 +209,7 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			throws IOException, InterruptedException {
 			
 			for (Text taggedRecord : records) {
-				LOG.info("[Reduce] key = " + key + " record = " + taggedRecord);
+				LOG.debug("[Reduce] key = " + key + " record = " + taggedRecord);
 				String tag = taggedRecord.toString().split(":")[0];
 				String tuple = taggedRecord.toString().split(":")[1];
 				if (tag.equals("L")) {
@@ -243,7 +244,8 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		}
 		
 		public int compare(byte[] b1, int s1, int l1, byte[] b2, int s2, int l2) {
-			
+			return 0;
+			/*
 			try {
 				buffer.reset(b1, s1, l1);
 				key1.readFields(buffer);
@@ -257,8 +259,9 @@ public class RandomPartitionJoin extends Configured implements Tool {
 			
 			String str1 = key1.toString().split(":")[0];
 			String str2 = key2.toString().split(":")[0];
-			LOG.info("[GroupingComparator] Compare " + str1 + " to " + str2);
+			LOG.debug("[GroupingComparator] Compare " + str1 + " to " + str2);
 			return str1.compareTo(str2);
+			*/
 		}
 	}
 
@@ -320,14 +323,48 @@ public class RandomPartitionJoin extends Configured implements Tool {
 		
 		job.setNumReduceTasks(numOfReducers);
 		
-		Date startTime = new Date();
-	    System.out.println("Job started: " + startTime);
-	    boolean ret = job.waitForCompletion(true);
-	    Date endTime = new Date();
-	    System.out.println("Job ended: " + endTime);
-	    System.out.println("The job took " + 
-	                       (endTime.getTime() - startTime.getTime()) /1000 + 
-	                       " seconds.");
+		
+	    Date startTime, endTime;
+	    Long cumulativeRunTime = 0L;
+	    Long currRunTime = 0L;
+	    Long maxRunTime = 0L;
+	    Long minRunTime = 0L;
+	    
+	    boolean ret = false;
+	    int repeat = 0;
+	    for (repeat = 0; repeat < 3; repeat++) {
+	    	
+	    	startTime = new Date();
+	    	System.out.println("Job started: " + startTime);
+	    	
+		    ret = job.waitForCompletion(true);
+		    endTime = new Date();
+		    
+		    currRunTime = (endTime.getTime() - startTime.getTime()) / 1000;
+		    
+		    if (minRunTime == 0L || minRunTime > currRunTime) {
+		    	minRunTime = currRunTime;
+		    } else if (maxRunTime < currRunTime) {
+		    	maxRunTime = currRunTime;
+		    }
+		    cumulativeRunTime += currRunTime;
+		    
+		    System.out.println("Job ended: " + endTime);
+		    System.out.println("The job took " + 
+		                       (endTime.getTime() - startTime.getTime()) /1000 + 
+		                       " seconds.");
+		    
+		    FileSystem fileSystem = FileSystem.get(conf);
+		    Path path = new Path(conf.get(OUTPUT_TABLE));
+		    if (!fileSystem.exists(path)) {
+		        System.out.println("File does not exists");
+		    }
+
+		    // Delete output path
+		    fileSystem.delete(path, true);
+	    }
+	    
+	    System.out.println("[Result] min = " + minRunTime + " max = " + maxRunTime + " avg = " + cumulativeRunTime / repeat);
 		return ret ? 0 : 1;
 	}
 	

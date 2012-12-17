@@ -203,12 +203,12 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
       numBytesToWrite = job.getLong("test.randomwrite.bytes_per_map",
                                    1*1024*1024*1024);
     		  						
-      minKeySize = job.getInt("test.randomwrite.min_key", 1);
+      minKeySize = job.getInt("test.randomwrite.min_key", 3);
       keySizeRange = 
-        job.getInt("test.randomwrite.max_key", 1) - minKeySize;
-      minValueSize = job.getInt("test.randomwrite.min_value", 5);
+        job.getInt("test.randomwrite.max_key", 5) - minKeySize;
+      minValueSize = job.getInt("test.randomwrite.min_value", 10);
       valueSizeRange = 
-        job.getInt("test.randomwrite.max_value", 5) - minValueSize;
+        job.getInt("test.randomwrite.max_value", 20) - minValueSize;
     }
     
   }
@@ -238,7 +238,6 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
     	try {
     		if ("-conf".equals(args[i])) {
     			job.addResource(args[++i]);
-    			
     		}
     		
     	} catch (Exception e) {
@@ -262,9 +261,12 @@ public class RandomTextKeyValueWriter extends Configured implements Tool {
     
     JobClient client = new JobClient(job);
     ClusterStatus cluster = client.getClusterStatus();
-    int numMapsPerHost = job.getInt("test.randomwriter.maps_per_host", 2);
+    int numMapsPerHost = job.getInt("test.randomwriter.maps_per_host", 1);
     long numBytesToWritePerMap = job.getLong("test.randomwrite.bytes_per_map",
                                              1*1024*1024*1024);
+    System.out.println(numMapsPerHost + " maps per host." );
+    System.out.println("Writes " + numBytesToWritePerMap + " bytes per map." );
+    
     if (numBytesToWritePerMap == 0) {
       System.err.println("Cannot have test.randomwrite.bytes_per_map set to 0");
       return -2;

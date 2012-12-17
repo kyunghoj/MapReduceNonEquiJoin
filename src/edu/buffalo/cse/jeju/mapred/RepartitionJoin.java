@@ -129,8 +129,8 @@ public class RepartitionJoin extends Configured implements Tool {
 			String strKey = key.toString();
 			String strVal = value.toString();
 				
-			LOG.info("[Map] key: " + strKey + " value: " + strVal);
-			LOG.info("[Map] input file path: " + inputFilePath.toString());
+			LOG.debug("[Map] key: " + strKey + " value: " + strVal);
+			LOG.debug("[Map] input file path: " + inputFilePath.toString());
 			
 			Text taggedKey;
 			Text taggedVal;
@@ -178,7 +178,7 @@ public class RepartitionJoin extends Configured implements Tool {
 			LinkedList<String> leftRecordBuf = new LinkedList<String>();
 			
 			for (Text taggedRecord : records) {
-				LOG.info("[Reduce] key = " + key + " record = " + taggedRecord);
+				LOG.debug("[Reduce] key = " + key + " record = " + taggedRecord);
 
 				String tag = taggedRecord.toString().split(":")[0];
 				String record = key + "," + taggedRecord.toString().split(":")[1];
